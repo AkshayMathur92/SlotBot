@@ -1,0 +1,7 @@
+{
+    "host":"127.0.0.1",
+    "port":"3306",
+    "database": "slot_bot_db",
+    "user":     "slot_bot_user",
+    "password": "slot_bot_pass"
+}
