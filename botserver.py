@@ -1,3 +1,4 @@
+from time import sleep
 from dbserver import SlotBotDB, SlotBotException
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import logging
@@ -5,12 +6,26 @@ import json
 import requests
 import sys
 import re
+from threading import Event, Thread
 
 BOT_TOKEN = "1874197080:AAGs1mRqG_OJOqbJlXeISLfpRDrcm6jq3VE"
 regex = "^[1-9]{1}[0-9]{2}\\s{0,1}[0-9]{3}$"; 
 pincode_regex = re.compile(regex)
+cron_time = 300
 
 db = SlotBotDB()
+stopFlag = Event()
+
+class MyThread(Thread):
+    def __init__(self, event, db):
+        Thread.__init__(self)
+        self.stopped = event
+        self.db = db
+
+    def run(self):
+        while not self.stopped.wait(1):
+           notify_available(db)
+           sleep(cron_time)
 
 class SimpleServer(BaseHTTPRequestHandler):
     def _set_response(self):
@@ -38,10 +53,13 @@ def run(server_class=HTTPServer, handler_class=SimpleServer, port=8443 ):
     httpd = server_class(server_address, handler_class)
     logging.info('Starting httpd...\n')
     try:
+        cronThread = MyThread(stopFlag, db)
+        cronThread.start()
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
     httpd.server_close()
+    stopFlag.set()
     logging.info('Stopping httpd...\n')
 
 def parseUpdate(update):
@@ -70,8 +88,8 @@ def getCommand(command):
         '/start': start_message,
         '/momo' : love_message,
         '/addme': add_pincode,
-        '/reset': remove_user,
-        '/notify': notify_available
+        '/reset': remove_user
+        # '/notify': notify_available
     }[command]
 
 def verifyPinCode(pincode):
@@ -126,14 +144,15 @@ def check_availability(pincode):
             avail_centre.append(session["name"])
     return avail_centre
 
-def notify_available(ignored):
+def notify_available(db):
     pincodes = db.getPinCodes()
     for pincode in pincodes:
         centres_avail = check_availability(pincode)
         if(len(centres_avail) > 0):
             users = db.getUsersWithPincode(pincode)
             for user in users:
-                sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centres_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/")
+                db.deleteUser(user)
+                sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centres_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/ . Use /addme to add another pincode. ")
 
 if __name__ == '__main__':
     from sys import argv
