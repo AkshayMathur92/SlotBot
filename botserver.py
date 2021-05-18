@@ -7,8 +7,10 @@ import requests
 import sys
 import re
 from threading import Event, Thread
+import datetime
 
 BOT_TOKEN = "1874197080:AAGs1mRqG_OJOqbJlXeISLfpRDrcm6jq3VE"
+DAYS_TO_CHECK = 3
 regex = "^[1-9]{1}[0-9]{2}\\s{0,1}[0-9]{3}$"; 
 pincode_regex = re.compile(regex)
 cron_time = 300
@@ -132,9 +134,9 @@ def sendMessage(user, text):
     requests.post(url, data = body)
     # logging.info(response.json())
 
-def check_availability(pincode):
+def check_availability(pincode, date):
     logging.info("checking for pincode {}".format(pincode))
-    url = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByPin?pincode={}&date=17-05-2021".format(pincode)
+    url = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByPin?pincode={}&date={}".format(pincode, date)
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
     response = requests.get(url, headers=headers)
     sessions = response.json()
@@ -146,13 +148,21 @@ def check_availability(pincode):
 
 def notify_available(db):
     pincodes = db.getPinCodes()
-    for pincode in pincodes:
-        centres_avail = check_availability(pincode)
-        if(len(centres_avail) > 0):
-            users = db.getUsersWithPincode(pincode)
-            for user in users:
-                db.deleteUser(user)
-                sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centres_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/ . Use /addme to add another pincode. ")
+    for date in getNextNDays(DAYS_TO_CHECK):
+        for pincode in pincodes:
+            centres_avail = check_availability(pincode, date)
+            if(len(centres_avail) > 0):
+                users = db.getUsersWithPincode(pincode)
+                for user in users:
+                    db.deleteUser(user)
+                    sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centres_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/ . Use /addme to add another pincode. ")
+
+def getNextNDays(n):
+    base = datetime.datetime.today()
+    date_list = [(base + datetime.timedelta(days=x)).strftime('%d-%m-%Y') for x in range(n)]
+    print(date_list)
+    return date_list
+
 
 if __name__ == '__main__':
     from sys import argv
