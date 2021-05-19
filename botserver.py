@@ -13,7 +13,7 @@ BOT_TOKEN = "1874197080:AAGs1mRqG_OJOqbJlXeISLfpRDrcm6jq3VE"
 DAYS_TO_CHECK = 3
 regex = "^[1-9]{1}[0-9]{2}\\s{0,1}[0-9]{3}$"; 
 pincode_regex = re.compile(regex)
-cron_time = 300
+cron_time = 900 
 
 db = SlotBotDB()
 stopFlag = Event()
@@ -26,7 +26,7 @@ class MyThread(Thread):
 
     def run(self):
         while not self.stopped.wait(1):
-           notify_available(db)
+           notify_available2(db)
            sleep(cron_time)
 
 class SimpleServer(BaseHTTPRequestHandler):
@@ -114,7 +114,7 @@ def remove_user(user):
         sendMessage(user, str(ex))
 
 def start_message(user):
-    sendMessage(user, "Hello, I will help you notify when a covid vaccine slot is available at your pincode. To suscribe please reply with /addme <pincode>")
+    sendMessage(user, "Hello, I will help you notify when a covid vaccine slot is available at your pincode. To subscribe please reply with /addme <pincode>")
 
 def love_message(user):
     sendMessage(user, "Love you Momo, LOLO XOXO, \u2764\ufe0f \u2764\ufe0f ")
@@ -129,6 +129,7 @@ def add_pincode(user, pincode):
     
 
 def sendMessage(user, text):
+    # logging.info("sending message -> " + text)
     url = 'https://api.telegram.org/bot{}/sendMessage'.format(BOT_TOKEN)
     body = {'chat_id': user, 'text' : text}
     requests.post(url, data = body)
@@ -138,6 +139,7 @@ def check_availability(pincode, date):
     logging.info("checking for pincode {}".format(pincode))
     url = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByPin?pincode={}&date={}".format(pincode, date)
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
+    proxy_dict = {'https' : '122.252.246.134:8080'}
     response = requests.get(url, headers=headers)
     sessions = response.json()
     avail_centre = []
@@ -145,6 +147,33 @@ def check_availability(pincode, date):
         for session in sessions["sessions"]:
             avail_centre.append(session["name"])
     return avail_centre
+
+def check_availability2(pincode, date):
+    logging.info("checking for pincode {}".format(pincode))
+    url = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByPin?pincode={}&date={}".format(pincode, date)
+    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
+    proxy_dict = {'https' : '122.252.246.134:8080'}
+    response = requests.get(url, headers=headers)
+    all_centers= response.json()["centers"]
+    avail_centers = []
+    for centre in all_centers:
+        for session in centre["sessions"]:
+            if(session["available_capacity"] > 0):
+                avail_centers.append(centre["name"] + " on " + session["date"])
+                break
+    return avail_centers
+
+def notify_available2(db):
+    pincodes = db.getPinCodes()
+    today = datetime.datetime.today().strftime('%d-%m-%Y')
+    for pincode in pincodes:
+        centers_avail = check_availability2(pincode, today)
+        if(len(centers_avail) > 0):
+            users = db.getUsersWithPincode(pincode)
+            for user in users:
+                db.deleteUser(user)
+                sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centers_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/ . Use /addme to add another pincode. ")
+        
 
 def notify_available(db):
     pincodes = db.getPinCodes()
@@ -160,7 +189,6 @@ def notify_available(db):
 def getNextNDays(n):
     base = datetime.datetime.today()
     date_list = [(base + datetime.timedelta(days=x)).strftime('%d-%m-%Y') for x in range(n)]
-    print(date_list)
     return date_list
 
 
