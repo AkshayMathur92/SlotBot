@@ -1,4 +1,5 @@
 from time import sleep
+
 from dbserver import SlotBotDB, SlotBotException
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import logging
@@ -13,7 +14,7 @@ BOT_TOKEN = "1874197080:AAGs1mRqG_OJOqbJlXeISLfpRDrcm6jq3VE"
 DAYS_TO_CHECK = 3
 regex = "^[1-9]{1}[0-9]{2}\\s{0,1}[0-9]{3}$"; 
 pincode_regex = re.compile(regex)
-cron_time = 900 
+cron_time = 300 
 
 db = SlotBotDB()
 stopFlag = Event()
@@ -26,7 +27,7 @@ class MyThread(Thread):
 
     def run(self):
         while not self.stopped.wait(1):
-           notify_available2(db)
+           notify_available(db)
            sleep(cron_time)
 
 class SimpleServer(BaseHTTPRequestHandler):
@@ -49,7 +50,7 @@ class SimpleServer(BaseHTTPRequestHandler):
         self._set_response()
         #self.wfile.write("POST request for {}".format(self.path).encode('utf-8'))
 
-def run(server_class=HTTPServer, handler_class=SimpleServer, port=8443 ):
+def run(server_class=HTTPServer, handler_class=SimpleServer, port=8444 ):
     logging.basicConfig(level=logging.INFO)
     server_address = ('', port)
     httpd = server_class(server_address, handler_class)
@@ -79,7 +80,10 @@ def parseUpdate(update):
             else:
                 if(commands[0] == '/addme'):
                     raise SlotBotException("addme requires pincode , usage /addme 302020")
-                getCommand(commands[0])(user)
+                if(commands[0] == '/notify'):
+                    notify_available(db)
+                else:
+                    getCommand(commands[0])(user)
     except SlotBotException as ex:
         sendMessage(user, str(ex))
     except:
@@ -91,7 +95,6 @@ def getCommand(command):
         '/momo' : love_message,
         '/addme': add_pincode,
         '/reset': remove_user
-        # '/notify': notify_available
     }[command]
 
 def verifyPinCode(pincode):
@@ -137,55 +140,38 @@ def sendMessage(user, text):
 
 def check_availability(pincode, date):
     logging.info("checking for pincode {}".format(pincode))
-    url = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByPin?pincode={}&date={}".format(pincode, date)
-    headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
-    proxy_dict = {'https' : '122.252.246.134:8080'}
-    response = requests.get(url, headers=headers)
-    sessions = response.json()
-    avail_centre = []
-    if(len(sessions) > 0):
-        for session in sessions["sessions"]:
-            avail_centre.append(session["name"])
-    return avail_centre
-
-def check_availability2(pincode, date):
-    logging.info("checking for pincode {}".format(pincode))
     url = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByPin?pincode={}&date={}".format(pincode, date)
     headers = {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_11_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36'}
-    proxy_dict = {'https' : '122.252.246.134:8080'}
-    response = requests.get(url, headers=headers)
-    all_centers= response.json()["centers"]
+    proxy_dict = {'https' : 'slot_user:slot_pass@13.232.18.141:8888'}
+    response = requests.get(url, headers=headers, proxies = proxy_dict)
     avail_centers = []
-    for centre in all_centers:
-        for session in centre["sessions"]:
-            if(session["available_capacity"] > 0):
-                avail_centers.append(centre["name"] + " on " + session["date"])
-                break
+    if(response.status_code / 100 == 2):
+        print(response.status_code)
+        all_centers= response.json()["centers"]
+        print(all_centers)
+        for centre in all_centers:
+            for session in centre["sessions"]:
+                if(session["available_capacity"] > 0):
+                    avail_centers.append(centre["name"] + " on " + session["date"])
+                    break
+    else:
+        print(response.text)
     return avail_centers
 
-def notify_available2(db):
-    pincodes = db.getPinCodes()
-    today = datetime.datetime.today().strftime('%d-%m-%Y')
-    for pincode in pincodes:
-        centers_avail = check_availability2(pincode, today)
-        if(len(centers_avail) > 0):
-            users = db.getUsersWithPincode(pincode)
-            for user in users:
-                db.deleteUser(user)
-                sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centers_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/ . Use /addme to add another pincode. ")
-        
-
 def notify_available(db):
-    pincodes = db.getPinCodes()
-    for date in getNextNDays(DAYS_TO_CHECK):
+    try:
+        pincodes = db.getPinCodes()
+        today = datetime.datetime.today().strftime('%d-%m-%Y')
         for pincode in pincodes:
-            centres_avail = check_availability(pincode, date)
-            if(len(centres_avail) > 0):
+            centers_avail = check_availability(pincode, today)
+            if(len(centers_avail) > 0):
                 users = db.getUsersWithPincode(pincode)
                 for user in users:
                     db.deleteUser(user)
-                    sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centres_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/ . Use /addme to add another pincode. ")
-
+                    sendMessage(user, "Hey slots are available @" + ', '.join([str(elem) for elem in centers_avail]) + ". Register here --> https://selfregistration.cowin.gov.in/ . Use /addme to add another pincode. ")
+    except Exception as e:
+        logging.error(e)
+        
 def getNextNDays(n):
     base = datetime.datetime.today()
     date_list = [(base + datetime.timedelta(days=x)).strftime('%d-%m-%Y') for x in range(n)]
