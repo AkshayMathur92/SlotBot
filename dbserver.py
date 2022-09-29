@@ -56,6 +56,15 @@ class SlotBotDB:
             logging.error("user cannot be added")
             raise SlotBotException("User was not added due to some error. Please try again in some time.")
     
+    def addUserWithState(self, user, name):
+        query = "INSERT INTO user_pincode(user, name) VALUES(%s, %s)"
+        args = (user, name)
+        if self.runUpdateQuery(query, args):
+            logging.info("New user added")
+        else:
+            logging.error("user cannot be added")
+            raise SlotBotException("User was not added due to some error. Please try again in some time.")
+    
     def deleteUser(self, user):
         query = "DELETE FROM user_pincode WHERE user={}".format(user)
         result = self.runUpdateQuery(query, ())
@@ -78,7 +87,35 @@ class SlotBotDB:
         users = []
         for row in result: users.extend(row)
         return users
-
+    
+    def getState(self, user):
+        query = "SELECT state FROM user_pincode where user={}".format(user)
+        result = self.runSelectQuery(query)
+        if(len(result) > 0):
+            return result[0][0]
+        return 0
+    
+    def saveState(self, user ,state):
+        query = "UPDATE user_pincode SET state = %s WHERE user = %s"
+        args = (state, user)
+        if not self.runUpdateQuery(query, args):
+            logging.error("state not saved")
+            raise SlotBotException("Please try again in some time.")
+    
+    def updatePincode(self, user, pincode):
+        query = "UPDATE user_pincode SET pincode = %s WHERE user = %s"
+        args = (pincode, user)
+        if not self.runUpdateQuery(query, args):
+            logging.error("pincode not saved")
+            raise SlotBotException("Please try again in some time.")
+    
+    def saveAge(self, user ,age):
+        query = "UPDATE user_pincode SET age = %s WHERE user = %s"
+        args = (age, user)
+        if not self.runUpdateQuery(query, args):
+            logging.error("age not saved")
+            raise SlotBotException("Please try again in some time.")
+ 
 class SlotBotException(Exception):
     def __init__(self, message):
         self.message = message

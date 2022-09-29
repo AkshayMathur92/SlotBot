@@ -9,6 +9,7 @@ import sys
 import re
 from threading import Event, Thread
 import datetime
+import botState
 
 BOT_TOKEN = "1874197080:AAGs1mRqG_OJOqbJlXeISLfpRDrcm6jq3VE"
 DAYS_TO_CHECK = 3
@@ -18,6 +19,8 @@ cron_time = 300
 
 db = SlotBotDB()
 stopFlag = Event()
+
+
 
 class MyThread(Thread):
     def __init__(self, event, db):
@@ -56,8 +59,8 @@ def run(server_class=HTTPServer, handler_class=SimpleServer, port=8444 ):
     httpd = server_class(server_address, handler_class)
     logging.info('Starting httpd...\n')
     try:
-        cronThread = MyThread(stopFlag, db)
-        cronThread.start()
+        # cronThread = MyThread(stopFlag, db)
+        # cronThread.start()
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
@@ -68,26 +71,55 @@ def run(server_class=HTTPServer, handler_class=SimpleServer, port=8444 ):
 def parseUpdate(update):
     try:
         updateDict = json.loads(update)
-        isCommand = updateDict["message"]["entities"][0]["type"]
-        if(isCommand == "bot_command"):
-            command_text = updateDict["message"]["text"]
-            user = updateDict["message"]["from"]["id"]
-            commands = command_text.split()
-            if(len(commands) > 1):
-                pincode = commands[1]
-                verifyPinCode(pincode)
-                getCommand(commands[0])( user, commands[1])
-            else:
-                if(commands[0] == '/addme'):
-                    raise SlotBotException("addme requires pincode , usage /addme 302020")
-                if(commands[0] == '/notify'):
-                    notify_available(db)
-                else:
-                    getCommand(commands[0])(user)
+        message = updateDict["message"]
+        user = message["chat"]["id"]
+        # bot_command = message["text"] if 'entities' in message and message["entities"][0]["type"] is not None else None
+        # if bot_command and not bot_command == "/start": 
+        #     command_text = updateDict["message"]["text"]
+        #     user = updateDict["message"]["from"]["id"]
+        #     commands = command_text.split()
+        #     if(len(commands) > 1):
+        #         pincode = commands[1]
+        #         verifyPinCode(pincode)
+        #         getCommand(commands[0])( user, commands[1])
+        #     else:
+        #         if(commands[0] == '/addme'):
+        #             raise SlotBotException("addme requires pincode , usage /addme 302020")
+        #         if(commands[0] == '/notify'):
+        #             notify_available(db)
+        #         else:
+        #             getCommand(commands[0])(user)
+        # else:
+        workflow = [botState.Start(), botState.AskPincode(), botState.AskAditionalInfo()]
+        workState = db.getState(user)
+        if(workState >= len(workflow)):
+            sendMessage(user, "We have got your query, hang tight we are searching slots for you. For a new pincode send /reset")
+            return
+        if(workState == 0):
+            sendInstruction(workflow[workState].instruction(user))
+        try:
+            workflow[workState].parse(message)
+        except Exception:
+            raise SlotBotException("I do not understand !")
+        workflow[workState].process(user, db)
+        sendMessage(user, workflow[workState].reply())
+        workState += 1
+        db.saveState(user, workState)
+        if(workState < len(workflow)):
+            sendInstruction(workflow[workState].instruction(user))
     except SlotBotException as ex:
         sendMessage(user, str(ex))
+        sendInstruction(workflow[workState].instruction(user))
     except:
         logging.error('Something went wrong', sys.exc_info()[0])
+
+def getNextRun(last_run):
+    if(last_run == 0): 
+        return 1 
+    if(last_run % 10 == 0):
+        return last_run + 1
+    else:
+        return last_run - 1 + 10 
 
 def getCommand(command):
     return {
@@ -129,14 +161,19 @@ def add_pincode(user, pincode):
     except SlotBotException as ex:
         sendMessage(user, str(ex))
         return
-    
 
 def sendMessage(user, text):
-    # logging.info("sending message -> " + text)
     url = 'https://api.telegram.org/bot{}/sendMessage'.format(BOT_TOKEN)
     body = {'chat_id': user, 'text' : text}
     requests.post(url, data = body)
-    # logging.info(response.json())
+
+def sendInstruction(str_body):
+    if str_body:
+        headers = {
+            'Content-Type': 'application/json'
+        }
+        url = 'https://api.telegram.org/bot{}/sendMessage'.format(BOT_TOKEN)
+        response = requests.post(url, headers = headers, data=str_body)
 
 def check_availability(pincode, date):
     logging.info("checking for pincode {}".format(pincode))
